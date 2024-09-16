@@ -1,22 +1,18 @@
 // Functions:
-//   built for generating neuromast masks
-//   go though all czi 3D image stacks in the folder
-//   provide Z-projection images for users to draw a single roi
+//   interactive process to generate hair cell masks
+//   batch processing all czi 3D image stacks in the folder
+//   save Z-projection for each channel
 //   save the binary mask of the roi
 //
 // Depends on plugin Masks From ROIs : https://sites.imagej.net/MasksfromRois/
 // 20230517 Leiz
 
-
 // **************************************************************
-// **************************************************************
-
-//  Set the channel asignment
+//  Channel arrrangment:
     chArr =   newArray("_hc", "TH", "_Vamp2");
     chColor = newArray("Grays","Magenta", "Green");
+    suffix_for_HCmsk = "_hc_msk"; 
 //***************************************************************    
-//***************************************************************
-
 
 inDir = getDirectory("--> INPUT: Choose Directory <--");
 outDir = getDirectory("--> OUTPUT: Choose Directory for TIFF Output <--");
@@ -30,13 +26,12 @@ print("Below is a list of files to be processeded:");
 printArray(list); // Implemented below
 print("Result save to:");
 print(outDir);
-tag = "_hc_msk";
 
 outChPrj = outDir + File.separator + "chPrj" + File.separator;
 if (!File.exists(outChPrj)) {
     File.makeDirectory(outChPrj);
 }
-// data processing
+
 setBatchMode(false);
 roiManager("show none"); 
 roiManager("reset"); 
@@ -44,9 +39,8 @@ for (i=0; i<nl; i++)
 {
   inFullname = inDir + list[i];
   sampleID = substring(list[i],0, lengthOf(list[i])-4);
-  outFullname = outDir + sampleID + tag + ".tif";
-//  txt = substring(list[i],0, lengthOf(list[i])-4);
-  print("Saving(",(i+1),"/",list.length,")...",list[i]); // Checkpoint: Indicating progress
+  outFullname = outDir + sampleID + suffix_for_HCmsk + ".tif";
+  print("Saving(",(i+1),"/",list.length,")...",list[i]); 
 
   open(inFullname);
   rename("Current");
@@ -71,7 +65,6 @@ for (i=0; i<nl; i++)
   selectWindow("zpj");
   Stack.setDisplayMode("composite");
   Stack.setActiveChannels("111");
-//  run("8-bit");
   Stack.setChannel(1)
   run("Enhance Contrast", "saturated=0.02");
   run(chColor[0]);
@@ -83,8 +76,6 @@ for (i=0; i<nl; i++)
   run("Enhance Contrast", "saturated=0.35");  
   run("Flatten");
   
-  
-   
   // Prompt the user to draw an ROI
   run("ROI Manager...");
   roiManager("reset");
@@ -105,7 +96,6 @@ print("--- All Done ---");
 
 // --- Main procedure end ---
 
-////
 function getFromFileList(ext, fileList)
 {
   // Select from fileList array the filenames with specified extension
