@@ -1,5 +1,5 @@
 //            ********************************************************
-//            ** CompleteSynaspseCounter2D 5.2, Kindt Lab **
+//            **      CompleteSynaspseCounter2D 5.2, Kindt Lab      **
 //            ********************************************************
 
 // Tested on ICaveJ 1.54f, Fiji
@@ -7,101 +7,58 @@
 // adopted from Candy Wong 2013 Jan.
 // 2023 Mar. 24 by Zhengchang Lei
 
-//--------------------------------------------------------------------------------------
-//--- update log
-
-// 20230328 Leiz
-// save data of all samples in master lists: NMstats, Target stats  
-// enlarge rbb or cav rois for paired pre-sysnapse or post-synapse counting
-// use HC mask to exclude signals outside of NM, 
-//    if there's no mask file for a image file, the whole field of view is included. 
-
-// 20230329 Leiz
-// contrast adjust before thresholding is important for accurate counting.
-
-// 20230421 Leiz
-// critical: remove the stack Normalizer for intensity quantification.
-// version 3.0
-
-// 20230505 Leiz
-// optional: rbb channel for more precious size measurement, use outside NM region to get
-//     background info.
-// version 5.0
-
-// 20230508 Leiz
-// added average size to NM stats 
-
-// 20230517 Leiz
-// set measurement before the image processing
-// adapt MAC osx file path
-
-// 20230601 Leiz
-// Load z-project image if it's previously saved. Save z-prj images if its not.
-// no Background thresholding module
-// optional: save zoomed jpg files.
-// re-frame the flow
-// version 5.1
-
-// 20230706 Leiz
-// added the section to load and Z-project tif file for segmented channels
-// auto determine the name of the adaptive thresholding plugin 
-// added the option to manually try adaptive thresholding and determing the parameters
-// adaptive thresholding parameters for each sample are saved int he NM stats table
-
-// 20230810 Leiz
-// added an enhanced watershed opiton for circular/round particals:
-//   fingding local maximal on the local thresholded gray-scale image + watershed in 3Dsuite
-// version 5.2
-
-// 20231012 Leiz
-// move circularity check to before watershed in the partical analysis for maguk.
-
 // ########################################################################################
 // Parameter Settings 
   // ----------------------------------------------------------------------------------------
   //  !!! Z-prj of channels should be named as: sampleNames + chsSuffix + Prj.tif 
   //  !!! Segmentation of channels should be named as: sampleNames + chsSuffix + Seg.tif
   // -----------------------------------------------------------------------------------------
-
+  
+  // Channel arrangement:
+  chHairCell = 1; // HC channel position
+  chsSuffix = newArray( "_hc",  "_ctbp",   "_mag"); //suffix of each channel Z-projection
+  chColor = newArray("Grays","Magenta",  "Green"); //
+  chN = chsSuffix.length; // number of channels 
+  suffix_for_HCmsk = "_hc_msk"; //if there's a mask, name it as ImageName + suffix_for_HCmsk
+  
   // Counting configurations:
   tgn = 2; // number of counting targets
-  cntTgt = newArray(    "ctbp",    "mag",    "NA"); // counting targets
-  pairTgt = newArray(    "mag",   "ctbp",    "NA"); // pairing target
-  tgColor = newArray("Magenta",  "Green", "Grays"); //
-  tgChPos = newArray(        2,        3,    "NA"); // target channel position
-  bgThrTog = newArray(       0,        0,    "NA"); // target channel tog for background size&int thresholding
-  bgThrUL = newArray(     0.06,      0.1,    "NA"); // maximum size for background particals
-  tgContrast = newArray(  0.01,     0.01,    "NA"); // target channel contrast
-  apSizeMin=newArray(    0.025,     0.04,    "NA"); // 2D size threshold for "Analyze Particle", 
-  circularMin = newArray(  0.3,      0.3,    "NA"); // 2D circularity threshold for "Analyze Particle", 
-  manualAdp = newArray(      0,        2,       0); // option to manually determin adaptive thresholding parameters for each sample 1: interactive, 2: pre-determined
-  athrBlockSize=newArray(   70,      110,    "NA"); // adaptive thresholding block size,
-  athrBG = newArray(       -20,      -30,    "NA"); // adaptive thresholding backgroud, 
-  enWatershed = newArray(    0,        0,    "NA");
-  enWed_radius = newArray(   3,        0,       0);
+  cntTgt = newArray(    "ctbp",    "mag"); // counting targets
+  pairCh = newArray(    "mag",   "ctbp"); // pairing channel
+  tgChPos = newArray(        2,        3); // target channel position
+  bgThrTog = newArray(       0,        0); // options to remove background particals: 0=false,1=true
+  bgThrUL = newArray(     0.06,      0.1); // maximum size for background particals
+  apSizeMin=newArray(    0.025,     0.04); // 2D size threshold for "Analyze Particle", 
+  circularMin = newArray(  0.3,      0.3); // 2D circularity threshold for "Analyze Particle", 
+  AdpOpt = newArray(         0,        0); // adaptive thresholding background level options:
+                                           //    0: universal preset backgroud level stored in athrBG 
+                                           //    1: determine backgroud level for each sample interactively, 
+                                           //    2: pre-determined backgroud level for each sample stored in athrBG_tg1 and athrBG_tg2
+  athrBG = newArray(       -20,      -30); // adaptive thresholding backgroud level, 
+  athrBlockSize=newArray(   70,      110); // adaptive thresholding block size,
+  
   engPix = 2; //enlarge rois for overlapping calculation (by pixs)
   jpgZoom = 2; //zoom factor for saved jpg
   
-  // in the ch sequence:
-  chHairCell = 1; // HC channel position
-  chsSuffix = newArray( "_hc",  "_ctbp",   "_mag"); //tag of singal channel Z-prj
-  chN = chsSuffix.length; // number of channels 
-  suffix_for_HCmsk = "_hc_msk"; //if there's a mask, name it as ImageName + suffix_for_HCmsk
+//  // pre-determined adptive threshold background level for target 1 and 2
+//  athrBG_tg1 = newArray(-32,-35,-35,-50,-32); 
+//  athrBG_tg2 = newArray(-35,-35,-26,-25,-35);
   
   
   //Stats table headers
   NMheaders = newArray("SampleID", 
-              cntTgt[0]+"Paired",cntTgt[0]+"#", cntTgt[0]+"Up", cntTgt[0]+"AvgSize", cntTgt[0]+"adpBlockSize", cntTgt[0] +"adpBG", cntTgt[0]+"SizeThr", cntTgt[0] +"IntThr", 
-              cntTgt[1]+"Paired",cntTgt[1]+"#", cntTgt[1]+"Up", cntTgt[1]+"AvgSize", cntTgt[1]+"adpBlockSize", cntTgt[1] +"adpBG", cntTgt[1]+"SizeThr", cntTgt[1] +"IntThr");
+              cntTgt[0]+"Paired",cntTgt[0]+"#", cntTgt[0]+"Up", cntTgt[0]+"AvgSize", cntTgt[0]+"AdpBlockSize", cntTgt[0] +"AdpBG", cntTgt[0]+"SizeThr", cntTgt[0] +"IntThr", 
+              cntTgt[1]+"Paired",cntTgt[1]+"#", cntTgt[1]+"Up", cntTgt[1]+"AvgSize", cntTgt[1]+"AdpBlockSize", cntTgt[1] +"AdpBG", cntTgt[1]+"SizeThr", cntTgt[1] +"IntThr");
   pmn = NMheaders.length;
   
-  // adaptive thresholding plugin named differently in OSX and Windows
+  // in some cases, adaptive thresholding plugin named differently in OSX and Windows system
   if (File.separator == "/"){
   adpThrPlugin = "adaptiveThr ";
   }else{
   	adpThrPlugin = "adaptiveThr Plugin";
   }
-//That's all!
+  
+//###################################################################################
 
 // select input folder
 inDir = getDirectory("--> INPUT: Choose Directory <--");
@@ -134,7 +91,7 @@ masterFileTg2 = outDir + dataSet + "_MasterFile_" + cntTgt[1] + ".csv";
       directory_spreadsheet = outDir;
       directory_roi = outDir;
 inList = getFileList(inDir);
-list = getFromFileList("czi", inList);  // select dirs only
+list = getFromFileList("czi", inList);  //select dirs only
 Array.sort(list);
 fn = list.length;
 
@@ -150,43 +107,24 @@ f = File.open(paraFile);
 print(f, "Parameters used as follow: ( " + year +"-"+ month+"-" + dayOfMonth +"_"+ hour+"-"+ minute+"-"+ second + ")");
 print(f, "channel config = " + chsSuffix[0] + ";" + chsSuffix[1] + ";" + chsSuffix[2]);
 print(f, "Counting configs:");
-print(f, "Counting targets = " + cntTgt[0] + ";" + cntTgt[1] + ";" + cntTgt[2]);
-print(f, "AnalyzeParticles sizeMin = " + apSizeMin[0] + ";" + apSizeMin[1] + ";" + apSizeMin[2]);
-print(f, "AnalyzeParticles circularityMin = " + circularMin[0] + ";" + circularMin[1] + ";" + circularMin[2]);
-print(f, "AdaptiveTHR blockSize = " + athrBlockSize[0] + ";" + athrBlockSize[1] + ";" + athrBlockSize[2]);
-print(f, "AdaptiveTHR background = " + athrBG[0] + ";" + athrBG[1] + ";" + athrBG[2]);
-print(f, "contrast per target = " + tgContrast[0] + ";" + tgContrast[1] + ";" + tgContrast[2] );
-print(f, "Background thr per target = " + bgThrTog[0] + ";" + bgThrTog[1] + ";" + bgThrTog[2]);
-print(f, "Background thr maximum size per target = " + bgThrUL[0] + ";" + bgThrUL[1] + ";" + bgThrUL[2]);
-print(f, "Enhanced Watershed tog = " + enWatershed[0] + ";" + enWatershed[1] + ";" + enWatershed[2] );
-print(f, "Enhanced Watershed XY radius = " + enWed_radius[0] + ";" + enWed_radius[1] + ";" + enWed_radius[2]);
+print(f, "Counting targets = " + cntTgt[0] + ";" + cntTgt[1] );
+print(f, "Background partical removing = " + bgThrTog[0] + ";" + bgThrTog[1]);
+print(f, "Background partical maximum size (um^2) = " + bgThrUL[0] + ";" + bgThrUL[1] );
+print(f, "AnalyzeParticles size Min (um^2) = " + apSizeMin[0] + ";" + apSizeMin[1]);
+print(f, "AnalyzeParticles circularity Min = " + circularMin[0] + ";" + circularMin[1]);
+print(f, "AdaptiveTHR background mode = " + AdpOpt[0] + ";" + AdpOpt[1] );
+print(f, "AdaptiveTHR background = " + athrBG[0] + ";" + athrBG[1] );
+print(f, "AdaptiveTHR blockSize = " + athrBlockSize[0] + ";" + athrBlockSize[1] );
 print(f, "engPix = " + engPix);
 print(f, "jpgZoom = " + jpgZoom);
 File.close(f);
-
-//
-//  athrBG_tg1 = newArray(-32,-35,-35,-50,-32,
-//  						-40,-20,-30,-32,-40,
-//  						-30,-40,-28,-40,-37,
-//  						-35,-30,-37);
-//  
-//   for selected group
-  athrBG_tg2 = newArray(-35,-35,-26,-25,-35,
-                        -40,-30,-50,-35,-32,
-                        -32,-30,-32,-26,-40,
-                        -40,-22,-35,-32,-35,
-                        -23,-35,-30,-40,-38,
-                        -35,-30,-30,-32,-42,
-                        -35,-32,-30,-25,-32,
-                        -32,-35,-30,-40,-45,
-                        -35,-35,-32,-35);
 
 //###################################################################################
 // --- Main Processing starts here ---
 
 roiManager("show none"); // to avoid a weird error of the ROImanager reset function
 run("Set Measurements...", "area mean centroid shape integrated add redirect=None decimal=3");
-Array.getStatistics(manualAdp, adpMin, adpMax);
+Array.getStatistics(AdpOpt, adpMin, adpMax);
 print(adpMin,adpMax);
 if (adpMax>0){
 	setBatchMode(false);
@@ -227,31 +165,25 @@ for (i=0; i<fn; i++){
                             inDir + spName + chsSuffix[2] + "Seg.tif");
   
     FN_2Droi = newArray(spName + "_" + cntTgt[0] + "2Droi.zip",
-                        spName + "_" + cntTgt[1] + "2Droi.zip",
-                        spName + "_" + cntTgt[2] + "2Droi.zip");
+                        spName + "_" + cntTgt[1] + "2Droi.zip");
                    
     FN_BG = newArray(spName + "_BG" + cntTgt[0] + ".jpeg",
-                     spName + "_BG" + cntTgt[1] + ".jpeg",  
-                     spName + "_BG" + cntTgt[2] + ".jpeg");
+                     spName + "_BG" + cntTgt[1] + ".jpeg");
                         
     FN_count = newArray(spName + "_" + cntTgt[0] + "Count.csv",
-                        spName + "_" + cntTgt[1] + "Count.csv",
-                        spName + "_" + cntTgt[2] + "Count.csv");
+                        spName + "_" + cntTgt[1] + "Count.csv");
                         
     FN_area = newArray(spName + "_" + cntTgt[0] + "Area_thr-",
-                       spName + "_" + cntTgt[1] + "Area_thr-",
-                       spName + "_" + cntTgt[2] + "Area_thr-");
+                       spName + "_" + cntTgt[1] + "Area_thr-");
     
     FN_Seg2D = newArray(spName  + "_Seg" + cntTgt[0] + ".jpeg",
-                        spName  + "_Seg" + cntTgt[1] + ".jpeg", 
-                        spName  + "_Seg" + cntTgt[2] + ".jpeg");
+                        spName  + "_Seg" + cntTgt[1] + ".jpeg");
     
     FN_CountBG = newArray(spName + "_" + cntTgt[0] + "CountBG.csv",
-                          spName + "_" + cntTgt[1] + "CountBG.csv",
-                          spName + "_" + cntTgt[2] + "CountBG.csv");
+                          spName + "_" + cntTgt[1] + "CountBG.csv");
                             
     
-    FN_manualAdp = spName + "_manualAdp.txt"; 
+    FN_AdpOpt = spName + "_AdpOpt.txt"; 
     FN_EXroi = spName + "_EXroi.zip";
     Seg2D_tif =   spName  + "_Seg2D.tif";
     Seg2D_jpeg = spName  + "_Seg2D.jpeg";
@@ -336,7 +268,7 @@ for (i=0; i<fn; i++){
          curTgt = cntTgt[itg];
          curBlockSize = athrBlockSize[itg];
          curBG = athrBG[itg];
-         if (manualAdp[itg] == 2){
+         if (AdpOpt[itg] == 2){
            if (itg==0){
          	curBG = athrBG_tg0[i];
             }
@@ -344,7 +276,7 @@ for (i=0; i<fn; i++){
          	curBG = athrBG_tg1[i];
             }
          }
-         curContrast = tgContrast[itg];
+         
          curApSizeMin = apSizeMin[itg];
          curCir = circularMin[itg];
          selectWindow("C" + curCh + "-Current");
@@ -352,19 +284,18 @@ for (i=0; i<fn; i++){
          imageCalculator("Multiply create", curTgt, "HCmsk");
          rename(curTgt + "_m");
          resetMinAndMax();
-         run("Enhance Contrast", "saturated=" + curContrast);
+         run("Enhance Contrast", "saturated=" + 0.01);
          getMinAndMax(chMin, chMax);
          run("Apply LUT");
          run("8-bit");
          run("Duplicate...", "title="+curTgt+"_tryAdp");
-         if (manualAdp[itg]==1){
+         if (AdpOpt[itg]==1){
          	waitForUser("try adaptive thresholding, then hit OK");   
-//         	curBlockSize=getNumber("Which block size did you set?", curBlockSize);
          	curBG=getNumber("Which background level did you set?", curBG);
          }
          selectWindow("NMstats");
-         Table.set(cntTgt[itg]+"adpBlockSize",i, curBlockSize);
-	     Table.set(cntTgt[itg]+"adpBG",i, curBG); 
+         Table.set(cntTgt[itg]+"AdpBlockSize",i, curBlockSize);
+	     Table.set(cntTgt[itg]+"AdpBG",i, curBG); 
 	     Table.update();
 	     
 	     selectWindow(curTgt + "_m");
@@ -379,43 +310,7 @@ for (i=0; i<fn; i++){
          }
 	     rename(curTgt + "_mw");
 	     
-         if (enWatershed[itg]==0){
-	         run("Watershed");
-         }else{ 
-			//******* enhanced watershed = maximal lobal + 3D watershed
-            //  create adptive shreholded gray-scale image
-         	rename(curTgt + "_ma"); //ma = masked by adaptive thresholding
-        	run("Divide...", "value=255.000");
-			imageCalculator("Multiply create", curTgt , curTgt + "_ma");
-			selectImage("Result of " + curTgt);
-			rename(curTgt + "_mg"); // mg = masked gray
-			
-            // find local maximum 
-            selectWindow(curTgt + "_mg");
-            getPixelSize(unit, px, py, pz);
-			filters_parameters=
-			  "filter=" + "MaximumLocal" +
-			  " radius_x_pix=" + d2s(enWed_radius[itg],1) +
-			  " radius_y_pix=" + d2s(enWed_radius[itg],1) +
-			  " radius_z_pix=" + d2s(1,1) +
-			  " Nb_cpus=8";
-			 run("3D Fast Filters",filters_parameters);
-			 rename(curTgt + "_3DLM"); // 3DLM = 3D maximum local
-             
-             // 3D watershed
-			watershed_parameters=
-			  "seeds_threshold=" + 0 +
-			  " image_threshold=" + 0 +
-			  " image=" + curTgt  + "_mg" +
-			  " seeds=" + curTgt + "_3DLM" +
-			  " radius=" + enWed_radius[itg];
-			run("3D Watershed", watershed_parameters);
-			setMinAndMax(0, 1);
-			run("Apply LUT");
-			run("Convert to Mask");
-			rename(curTgt + "_mw");
-			run("Properties...", "unit=micron pixel_width=px pixel_height=py voxel_depth=pz");
-         }
+         run("Watershed");
          
          // count target punctas inside the NM mask
 	     selectWindow(curTgt + "_mw");
@@ -475,17 +370,17 @@ for (i=0; i<fn; i++){
      rename("CompositeRaw");
          Stack.setChannel(2);
 	     run("Enhance Contrast", "saturated=0.35");
-	     run(tgColor[1]);
+	     run(chColor[tgChPos[0]-1]);
 	     Stack.setChannel(1);
 	     run("Enhance Contrast", "saturated=0.35");
-	     run(tgColor[0]);
+	     run(chColor[tgChPos[1]-1]);
     curEXn = newArray(0,0); //excluded partical counter
     curUp = newArray(0,0);
     curN = newArray(0,0);
     for (itg=0;itg<tgn;itg++){
     	curCh = tgChPos[itg];
         curTgt = cntTgt[itg];
-        curpairTgt = pairTgt[itg];
+        curpairCh = pairCh[itg];
         curApSizeMin = apSizeMin[itg];
         curSizeThr = BGSizeThr[itg];
         curIntThr = BGIntThr[itg];
@@ -525,14 +420,6 @@ for (i=0; i<fn; i++){
            }
         }
 
-//        selectWindow(curTgt);
-//        run("Clear Results");
-//        roiManager("Show None");
-//        roiManager("Show All");
-//        roiManager("OR");
-//        roiManager("Measure");
-//        run("Input/Output...", "jpeg=100 gif=-1 file=.csv copy_column copy_row save_column save_row");
-//        saveAs("Results", outXlsx + FN_area[itg] );
         Array.getStatistics(curSize, curMin, curMax, curAvgSize);
 //        print(curAvgSize);
         run("Clear Results");
@@ -543,7 +430,7 @@ for (i=0; i<fn; i++){
         Array.fill(curOverlap,0);
         curIdx = newArray(curN[itg]);
         
-        selectWindow(curpairTgt + "_mask");
+        selectWindow(curpairCh + "_mask");
         roiManager("Show None");
         if (engPix > 0){
            roiManager("select","ROI Manager");
@@ -574,7 +461,7 @@ for (i=0; i<fn; i++){
             j++;
            }
         }
-        selectWindow(curpairTgt + "_mask");
+        selectWindow(curpairCh + "_mask");
         roiManager("Show None");
         run("Select None");
           
@@ -676,9 +563,9 @@ for (i=0; i<fn; i++){
      // save masks
      run("Merge Channels...", "c1="+cntTgt[0]+"_mask c2=" + cntTgt[1] + "_mask create keep");
      Stack.setChannel(2);
-     run(tgColor[1]);
+     run(chColor[tgChPos[0]-1]);
      Stack.setChannel(1);
-     run(tgColor[0]);
+     run(chColor[tgChPos[1]-1]);
      save(outRoi + msk_tif);
      rename("CompositeMSK");
      getDimensions(width, height, channels, slices, frames);
